@@ -1,237 +1,330 @@
-# error-extender-1.0.2
+# error-extender
 
-Simplifies creation of custom `Error` classes for Node.js!
+Simplifies creation of custom `Error` classes for Node.js, with cause-chaining stack traces (à la Java) and deep-merging defaults.
 
-...which then produces `stack` with appended stacks of supplied `cause` _(very much like in Java)_!
+## Install
 
-```javascript
-const extendError = require('error-extender');
+```sh
+npm install error-extender
+```
+
+## Quick Start
+
+**TypeScript**
+
+```typescript
+import { extendError } from 'error-extender';
 
 const CustomError = extendError('CustomError');
 
-const rootCause = new Error('the root cause');
+const rootCause = new Error('something broke deep down');
 
-console.log(new CustomError({ message: 'An error has occurred.', cause: rootCause }));
+throw new CustomError({ message: 'An error has occurred.', cause: rootCause });
 ```
 
-Shall output:
+**Plain JS (CommonJS)**
+
+```javascript
+const { extendError } = require('error-extender');
+
+const CustomError = extendError('CustomError');
+
+const rootCause = new Error('something broke deep down');
+
+throw new CustomError({ message: 'An error has occurred.', cause: rootCause });
+```
+
+The thrown error's `.stack` will include the full cause chain:
 
 ```
 CustomError: An error has occurred.
-    at Object.<anonymous> (/opt/app/index.js:7:13)
-    at Module._compile (internal/modules/cjs/loader.js:702:30)
-    at Object.Module._extensions..js (internal/modules/cjs/loader.js:713:10)
-    at Module.load (internal/modules/cjs/loader.js:612:32)
-    at tryModuleLoad (internal/modules/cjs/loader.js:551:12)
-    at Function.Module._load (internal/modules/cjs/loader.js:543:3)
-    at Function.Module.runMain (internal/modules/cjs/loader.js:744:10)
-    at startup (internal/bootstrap/node.js:240:19)
-    at bootstrapNodeJSCore (internal/bootstrap/node.js:564:3)
-Caused by: Error: the root cause
+    at Object.<anonymous> (/opt/app/index.js:7:7)
+    ...
+Caused by: Error: something broke deep down
     at Object.<anonymous> (/opt/app/index.js:5:19)
-    at Module._compile (internal/modules/cjs/loader.js:702:30)
-    at Object.Module._extensions..js (internal/modules/cjs/loader.js:713:10)
-    at Module.load (internal/modules/cjs/loader.js:612:32)
-    at tryModuleLoad (internal/modules/cjs/loader.js:551:12)
-    at Function.Module._load (internal/modules/cjs/loader.js:543:3)
-    at Function.Module.runMain (internal/modules/cjs/loader.js:744:10)
-    at startup (internal/bootstrap/node.js:240:19)
-    at bootstrapNodeJSCore (internal/bootstrap/node.js:564:3)
+    ...
 ```
-
-### 100% Code Coverage
-Oh, by the way, 100% test coverage. See for yourself (via `npm test`)!
 
 ## Features
 
-### "Extending" Errors
+### Creating Custom Error Classes
 
-It's quite simple! See below:
+```typescript
+// TypeScript
+import { extendError } from 'error-extender';
 
-```javascript
-const extendError = require('error-extender');
-
-const AppError = extendError('AppError'); // extends `Error` (default)
+const AppError = extendError('AppError');
 ```
 
-Or... A bit more complex using the second argument _(options)_:
+```javascript
+// Plain JS
+const { extendError } = require('error-extender');
+
+const AppError = extendError('AppError');
+```
+
+The second argument accepts options:
+
+| key              | type                                     | description                              |
+| ---------------- | ---------------------------------------- | ---------------------------------------- |
+| `parent`         | `Error` constructor _(or subclass of it)_ | Parent error class to extend (default: `Error`) |
+| `defaultMessage` | `string`                                 | Fallback message when none is provided   |
+| `defaultData`    | `any`                                    | Fallback data (deep-merged with instance `data` if both are plain objects) |
+
+### Error Hierarchies
+
+Custom errors can extend other custom errors. `instanceof` checks work across the full hierarchy.
+
+```typescript
+// TypeScript
+import { extendError } from 'error-extender';
+
+const AppError    = extendError('AppError');
+const ServiceError = extendError('ServiceError', { parent: AppError });
+const DatabaseError = extendError('DatabaseError', { parent: ServiceError });
+
+const err = new DatabaseError();
+console.log(err instanceof DatabaseError); // true
+console.log(err instanceof ServiceError);  // true
+console.log(err instanceof AppError);      // true
+console.log(err instanceof Error);         // true
+```
 
 ```javascript
-const extendError = require('error-extender');
+// Plain JS
+const { extendError } = require('error-extender');
+
+const AppError     = extendError('AppError');
+const ServiceError = extendError('ServiceError', { parent: AppError });
+const DatabaseError = extendError('DatabaseError', { parent: ServiceError });
+
+const err = new DatabaseError();
+console.log(err instanceof DatabaseError); // true
+console.log(err instanceof ServiceError);  // true
+console.log(err instanceof AppError);      // true
+console.log(err instanceof Error);         // true
+```
+
+### Default Message & Data Inheritance
+
+`defaultMessage` and `defaultData` cascade down the hierarchy. Children inherit parent defaults and can override or extend them.
+
+```typescript
+// TypeScript
+import { extendError } from 'error-extender';
 
 const AppError = extendError('AppError', {
   defaultMessage: 'An unhandled error has occurred.',
-  defaultData: { status: 503, message: 'An unhandled error has occurred.' }
+  defaultData: { status: 503, message: 'Service unavailable.' },
 });
 
 const ServiceError = extendError('ServiceError', {
-  parent: AppError, // extends `AppError`
+  parent: AppError,
   defaultMessage: 'A service error has occurred.',
-  defaultData: { status: 500, message: 'A service error has occurred.' }
+  defaultData: { status: 500, message: 'Internal server error.' },
 });
 
 const DatabaseError = extendError('DatabaseError', {
-  parent: ServiceError, // extends `ServiceError`
-  defaultMessage: 'A service database error has occurred.',
-  defaultData: { message: 'A service database error has occurred.' }
+  parent: ServiceError,
+  // no defaultMessage — inherits ServiceError's
+  defaultData: { message: 'A database error has occurred.' },
 });
 
-require('assert').deepStrictEqual(
-  DatabaseError.defaultData, {
-    status: 500,
-    message: 'A service database error has occurred.'
-  });
-// no error
+console.log(DatabaseError.defaultData);
+// { status: 500, message: 'A database error has occurred.' }
+//   ^^ status inherited from ServiceError, message overridden
 ```
 
-Yes, `defaultData` merges!
-
-#### `error-extender` Arguments
-
-`error-extender` accepts a single [object literal](https://www.w3schools.com/js/js_objects.asp) as second argument.
-
-The options (object literal keys) are as follows:
-
-| key              | expected type                              |
-| ---------------- | ------------------------------------------ |
-| `parent`         | `Error.prototype` _or one that extends it_ |
-| `defaultMessage` | `string`                                   |
-| `defaultData`    | `any`                                      |
-
-### "Extended Errors"
-
-1) Creates prototype-based `Error` classes (child/subclass) : _"Extended Errors"_.
-1) Those _"Extended Errors"_, accepts `cause` (`Error`); very much like how it is with Java `Exception`.
-1) Appends stack of `cause` to the bottom of instantiated _"Extended Errors"_ stack.
-1) _"Extended Errors"_ constructor & argument _(w/ optional `new`)_:
-    1) `new ExtendedError(options)`
-    1) `ExtendedError(options)`
-
-Yes, much like JavaScript's native `Error`, "Extended Errors" can be written/used "factory-like" (without the `new` keyword).
-
-#### "Extended Errors" Arguments (constructor)
-
-"Extended Errors" accepts a single [object literal](https://www.w3schools.com/js/js_objects.asp) as argument:
-
 ```javascript
-const extendError = require('error-extender');
+// Plain JS
+const { extendError } = require('error-extender');
+
+const AppError = extendError('AppError', {
+  defaultMessage: 'An unhandled error has occurred.',
+  defaultData: { status: 503, message: 'Service unavailable.' },
+});
+
+const ServiceError = extendError('ServiceError', {
+  parent: AppError,
+  defaultMessage: 'A service error has occurred.',
+  defaultData: { status: 500, message: 'Internal server error.' },
+});
+
+const DatabaseError = extendError('DatabaseError', {
+  parent: ServiceError,
+  defaultData: { message: 'A database error has occurred.' },
+});
+
+console.log(DatabaseError.defaultData);
+// { status: 500, message: 'A database error has occurred.' }
+```
+
+### Constructor Options
+
+Custom errors accept a single options object:
+
+| key       | alias | type                | description                      |
+| :-------- | :---: | ------------------- | -------------------------------- |
+| `message` | `m`   | `string`            | Error message                    |
+| `data`    | `d`   | `any`               | Arbitrary attached data          |
+| `cause`   | `c`   | `instanceof Error`  | The underlying cause             |
+
+Aliases (`m`, `d`, `c`) are evaluated first; if `m` is truthy it takes precedence over `message`.
+
+```typescript
+// TypeScript
+import { extendError } from 'error-extender';
+
 const ServiceError = extendError('ServiceError');
+
 try {
-  // ... something throws something
-} catch (error) {
+  // ...something that throws
+} catch (err) {
   throw new ServiceError({
-    message: 'An error has occurred',
+    message: 'Failed to call downstream service.',
     data: { ref: '7e9f876ca116' },
-    cause: error
+    cause: err as Error,
   });
 }
 ```
 
-The options (object literal keys) are as follows:
-
-| key       | alias | expected type       |
-| :-------- | :---: | ------------------- |
-| `message` | `m`   | `string`            |
-| `data`    | `d`   | `any`               |
-| `cause`   | `c`   | `instancedof Error` |
-
-Given the alias, you may construct extended errors by:
-
 ```javascript
-const extendError = require('error-extender');
+// Plain JS
+const { extendError } = require('error-extender');
+
 const ServiceError = extendError('ServiceError');
+
 try {
-  // ... something throws something
-} catch (error) {
+  // ...something that throws
+} catch (err) {
   throw new ServiceError({
-    m: 'An error has occurred',
-    d: { ref: '7e9f876ca116' },
-    c: error
+    message: 'Failed to call downstream service.',
+    data: { ref: '7e9f876ca116' },
+    cause: err,
   });
 }
 ```
 
-**Note**: Aliases are evaluated first; hence if you have both `m` and `message`, if `m`'s value is [truthy](https://developer.mozilla.org/en-US/docs/Glossary/Truthy), then `m`'s value will be used.
+### Instance Properties
 
-#### Instance Properties
+In addition to the standard `name`, `message`, and `stack`:
 
-As with `Error`, "Extended Errors" would have the following properties:
+| property | description                              |
+| -------- | ---------------------------------------- |
+| `data`   | The resolved data (instance `data` deep-merged with `defaultData` when both are plain objects) |
+| `cause`  | The causing `Error` instance             |
 
-* `name`
-* `message`
-* `stack`
+### Instance `data` Merges with `defaultData`
 
-... "Extended Errors" shall have the following additiona properties:
+When both `defaultData` and the instance `data` are plain objects, they are deep-merged (instance values win on conflict).
 
-* `data` - _(as set in constructor args)_
-* `cause` - _(as set in constructor args)_
+```typescript
+// TypeScript
+import { extendError } from 'error-extender';
 
-#### `data` merging w/ `defaultData`
-
-Yes, you heard right, instance `data` merges with `defaultData`!!!
-
-See example below:
-
-```javascript
-const extendError = require('error-extender');
-
-const AppError = extendError('ServiceError', {
-  defaultData: { status: 503, message: 'An unhandled error has occurred.' }
+const AppError = extendError('AppError', {
+  defaultData: { status: 503, message: 'Service unavailable.' },
 });
 
-const appError = new AppError({ d: { status: 401 } });
+const err = new AppError({ data: { status: 401 } });
 
-require('assert').deepStrictEqual(
-  appError.data, {
-    status: 401,
-    message: 'An unhandled error has occurred.'
-  });
-// no error
+console.log(err.data);
+// { status: 401, message: 'Service unavailable.' }
+//   ^^ status overridden, message filled from defaultData
 ```
 
-## The inspiration (thanks [`bluebird`](https://www.npmjs.com/package/bluebird)!):
-
 ```javascript
-const Promise = require('bluebird');
-// ...
-const extendError = require('error-extender');
-// ...
-const ServiceError = extendError('ServiceError');
-const ServiceStateError = extendError(
-  'ServiceStateError',
-  { parent: ServiceError });
-// ...
-function aServiceFunction() {
-  return new Promise(
-    function (resolve, reject) {
-      // ... multiple things that may throw your
-      //     custom "expected" errors
-    })
-    .catch(ServiceStateError, function (error) {
-      // ... your "common way" of handling
-      //     ServiceStateError
-      // ... then propagate
-    })
-    .catch(ServiceError, function (error) {
-      // ... your "common generc way" of handling
-      //     ServiceError
-      // ... then propagate
-    })
-    .catch(function (error) {
-      // ... the "catch all"
-      // ... then propagate
-    });
+// Plain JS
+const { extendError } = require('error-extender');
+
+const AppError = extendError('AppError', {
+  defaultData: { status: 503, message: 'Service unavailable.' },
+});
+
+const err = new AppError({ data: { status: 401 } });
+
+console.log(err.data);
+// { status: 401, message: 'Service unavailable.' }
+```
+
+### Cause Chain in Stack Traces
+
+Each `Caused by:` section appends the full stack of the causing error, arbitrarily deep.
+
+```typescript
+// TypeScript
+import { extendError } from 'error-extender';
+
+const ServiceError  = extendError('ServiceError');
+const DatabaseError = extendError('DatabaseError', { parent: ServiceError });
+
+try {
+  try {
+    throw new Error('connection refused');
+  } catch (root) {
+    throw new DatabaseError({ message: 'Query failed.', cause: root as Error });
+  }
+} catch (dbErr) {
+  throw new ServiceError({ message: 'Could not load user.', cause: dbErr as Error });
 }
 ```
 
-With JavaScript, I felt quite stifled when I was limited to:
+```javascript
+// Plain JS
+const { extendError } = require('error-extender');
 
-1) Do selective/custom handling based on matching messages from `throw new Error('..')`.
-1) Return/propagate [JSend](https://labs.omniti.com/labs/jsend)-like responses to function "callers"/"users".
-1) ... or whatever error possible passing/handling could be done, throughout functions and callers/users.
+const ServiceError  = extendError('ServiceError');
+const DatabaseError = extendError('DatabaseError', { parent: ServiceError });
 
-With **`error-extender`** with help from [syntactic-sugar](https://en.wikipedia.org/wiki/Syntactic_sugar) from [`bluebird`](https://www.npmjs.com/package/bluebird), you can improve _(or even standardize)_ your way of propagating/handling errors throughout your application.
-callers.
+try {
+  try {
+    throw new Error('connection refused');
+  } catch (root) {
+    throw new DatabaseError({ message: 'Query failed.', cause: root });
+  }
+} catch (dbErr) {
+  throw new ServiceError({ message: 'Could not load user.', cause: dbErr });
+}
+```
+
+Stack trace output:
+
+```
+ServiceError: Could not load user.
+    at Object.<anonymous> (/opt/app/index.js:14:9)
+    ...
+Caused by: DatabaseError: Query failed.
+    at Object.<anonymous> (/opt/app/index.js:10:11)
+    ...
+Caused by: Error: connection refused
+    at Object.<anonymous> (/opt/app/index.js:7:11)
+    ...
+```
+
+### TypeScript: Typed `data`
+
+Pass a type parameter to get full type safety on `data` and `defaultData`.
+
+```typescript
+import { extendError } from 'error-extender';
+
+interface HttpErrorData {
+  status: number;
+  body?: string;
+}
+
+const HttpError = extendError<HttpErrorData>('HttpError', {
+  defaultData: { status: 500 },
+});
+
+const err = new HttpError({ data: { status: 404, body: 'Not Found' } });
+
+console.log(err.data?.status); // 404  (typed as HttpErrorData)
+```
+
+## 100% Code Coverage
+
+Test coverage is verified on every build via `npm test`.
 
 ## License
 
