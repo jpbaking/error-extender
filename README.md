@@ -2,6 +2,111 @@
 
 Simplifies creation of custom `Error` classes for Node.js, with cause-chaining stack traces (à la Java) and deep-merging defaults.
 
+## Why error-extender?
+
+Modern JavaScript has `Error.cause` and class-based custom errors — but there are real gaps that `error-extender` fills.
+
+### Cause chains appear in logs without any custom formatter
+
+Most loggers (Winston, Pino, etc.) and log aggregators serialize only `error.stack`. Native `Error.cause` is invisible to them unless you write a custom serializer for every tool in your pipeline. `error-extender` appends each `Caused by:` frame directly into the stack string, so the full chain appears wherever stack traces are written — no extra setup.
+
+```javascript
+// Native — cause is invisible in error.stack
+const root = new Error('connection refused');
+const err = new Error('query failed', { cause: root });
+console.error(err.stack);
+// Error: query failed
+//     at Object.<anonymous> (/app/index.js:2:13)
+//     ...
+// (cause never appears — most loggers stop here)
+
+// error-extender — full chain baked into the stack string
+const { extendError } = require('error-extender');
+const DatabaseError = extendError('DatabaseError');
+
+const root = new Error('connection refused');
+const err = new DatabaseError({ message: 'query failed', cause: root });
+console.error(err.stack);
+// DatabaseError: query failed
+//     at Object.<anonymous> (/app/index.js:8:13)
+//     ...
+// Caused by: Error: connection refused
+//     at Object.<anonymous> (/app/index.js:7:14)
+//     ...
+```
+
+### Typed, structured context on every error
+
+Native `Error` has no `data` field. Without `error-extender`, attaching structured context (an HTTP status, a request ID, an affected resource) requires manual boilerplate on every custom class.
+
+```typescript
+// Native — boilerplate repeated on every custom error class
+class HttpError extends Error {
+  readonly status: number;
+  readonly body?: string;
+  constructor(message: string, status: number, body?: string) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+// error-extender — typed data in one call, no boilerplate
+import { extendError } from 'error-extender';
+
+interface HttpErrorData { status: number; body?: string }
+
+const HttpError = extendError<HttpErrorData>('HttpError');
+
+const err = new HttpError({ data: { status: 404, body: 'Not Found' } });
+err.data?.status; // number — fully typed
+```
+
+### Default values cascade and deep-merge down the hierarchy
+
+Define `defaultMessage` and `defaultData` once at the parent level; child errors inherit them automatically. When both parent and child `defaultData` are plain objects, they deep-merge (child wins on conflict) — so a `DatabaseError` can inherit `{ status: 500 }` from `ServiceError` and only override what it needs.
+
+```typescript
+import { extendError } from 'error-extender';
+
+const ServiceError = extendError('ServiceError', {
+  defaultMessage: 'A service error has occurred.',
+  defaultData: { status: 500 },
+});
+
+const DatabaseError = extendError('DatabaseError', {
+  parent: ServiceError,
+  // no defaultMessage — inherits from ServiceError
+  defaultData: { message: 'A database error has occurred.' },
+});
+
+console.log(DatabaseError.defaultData);
+// { status: 500, message: 'A database error has occurred.' }
+//   ^^ status inherited from ServiceError, message added by DatabaseError
+
+const err = new DatabaseError(); // no args needed
+console.log(err.message); // 'A service error has occurred.'  (inherited)
+console.log(err.data);    // { status: 500, message: 'A database error has occurred.' }
+```
+
+### Stack traces point at your code, not library internals
+
+`error-extender` uses `Error.captureStackTrace` to remove its own frames from the stack, so every trace starts at the call site in your application.
+
+```
+// Without captureStackTrace — library internals pollute the top of the stack
+Error: something went wrong
+    at new ExtendedErrorImpl (node_modules/error-extender/dist/index.js:18:5)
+    at Object.<anonymous> (/app/service.js:12:9)   <-- your code, buried
+    ...
+
+// error-extender — trace starts directly at your call site
+ServiceError: something went wrong
+    at Object.<anonymous> (/app/service.js:12:9)   <-- your code, first
+    ...
+```
+
 ## Install
 
 ```sh
