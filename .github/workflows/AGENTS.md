@@ -8,7 +8,7 @@ Library author: Joseph Baking (jpbaking).
 
 ## Local Contracts
 
-- `npm-publish-on-github-release.yml` — triggers on GitHub release published; runs lint → test → build → `npm publish`
+- `ci.yml` — triggers on push/merge to main; runs lint → test → build
 - Publish requires `NPM_TOKEN` set as a GitHub Actions secret
 - No workflow may skip lint or tests before publishing
 

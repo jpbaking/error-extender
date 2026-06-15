@@ -1,15 +1,13 @@
-name: Node.js Package Publish to NPM on GitHub Release
+name: Node.js CI
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main
 
 jobs:
-  publish:
+  ci:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,4 +18,3 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - run: npm publish --provenance
