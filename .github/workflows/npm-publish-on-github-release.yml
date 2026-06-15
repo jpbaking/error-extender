@@ -1,4 +1,4 @@
-name: CI
+name: Node.js Package Publish to NPM on GitHub Release
 
 on:
   release:
