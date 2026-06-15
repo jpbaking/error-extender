@@ -8,13 +8,12 @@ export function merge(
   const result: Record<string, unknown> = {};
   for (const obj of objects) {
     for (const key of Object.keys(obj)) {
-      if (isPlainObject(result[key]) && isPlainObject(obj[key])) {
-        result[key] = merge(
-          result[key] as Record<string, unknown>,
-          obj[key] as Record<string, unknown>
-        );
+      const existing = result[key];
+      const incoming = obj[key];
+      if (isPlainObject(existing) && isPlainObject(incoming)) {
+        result[key] = merge(existing, incoming);
       } else {
-        result[key] = obj[key];
+        result[key] = incoming;
       }
     }
   }
