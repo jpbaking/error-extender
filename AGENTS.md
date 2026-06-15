@@ -80,7 +80,7 @@ When the user requests a durable behavior change, record it here or in the relev
 
 ## Child DOX Index
 
-- [.github/workflows/AGENTS.md](.github/workflows/AGENTS.md) — CI/CD workflows; publish to npmjs on GitHub release
+- [.github/workflows/AGENTS.md](.github/workflows/AGENTS.md) — CI (lint/test/build on push to main); npm publish is manual
 - [src/AGENTS.md](src/AGENTS.md) — public API (`extendError`), exported types, build/test contracts
   - [src/helpers/AGENTS.md](src/helpers/AGENTS.md) — internal utilities (`hiddenReadOnly`, `isPlainObject`, `merge`)
 
